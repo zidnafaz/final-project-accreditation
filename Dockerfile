@@ -12,8 +12,8 @@ COPY composer.json composer.lock ./
 ENV COMPOSER_ALLOW_SUPERUSER=1
 RUN composer config --global process-timeout 2000
 
-# Install dependencies tanpa dev (cepat, cacheable)
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Install dependencies
+RUN composer install
 
 # ============================================
 # Stage 2 — PHP-FPM production image
@@ -30,11 +30,14 @@ RUN apt-get update && apt-get install -y \
 # Atur direktori kerja
 WORKDIR /var/www/html
 
-# Copy vendor dari stage pertama (lebih cepat & kecil)
+# Copy vendor dari stage pertama
 COPY --from=vendor /app/vendor ./vendor
 
 # Copy seluruh source code
 COPY . .
+
+# Jalankan composer dump-autoload agar scripts artisan baru aktif setelah file ada
+RUN composer dump-autoload --optimize
 
 # Generate APP_KEY otomatis (jika belum ada)
 RUN php artisan key:generate --ansi || true
