@@ -48,10 +48,17 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interactio
 # Copy application files
 COPY . .
 
+# Create required Laravel directories
+RUN mkdir -p storage/framework/views \
+    && mkdir -p storage/framework/cache/data \
+    && mkdir -p storage/framework/sessions \
+    && mkdir -p storage/logs \
+    && mkdir -p bootstrap/cache
+
 # Set permissions
 RUN chown -R www-data:www-data /var/www/html \
-    && chmod -R 755 /var/www/html/storage \
-    && chmod -R 755 /var/www/html/bootstrap/cache
+    && chmod -R 775 /var/www/html/storage \
+    && chmod -R 775 /var/www/html/bootstrap/cache
 
 # Create nginx configuration
 RUN echo 'worker_processes auto;\n\
@@ -124,7 +131,7 @@ stderr_logfile=/dev/stderr\n\
 stderr_logfile_maxbytes=0' > /etc/supervisord.conf
 
 # Create startup script using printf for better compatibility
-RUN printf '#!/bin/sh\nset -e\n\n# Run Laravel optimizations\nphp artisan config:cache\nphp artisan route:cache\nphp artisan view:cache\n\n# Run migrations (optional - uncomment if needed)\n# php artisan migrate --force\n\n# Start supervisor\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /usr/local/bin/start.sh && \
+RUN printf '#!/bin/sh\nset -e\n\n# Create required directories if they do not exist\nmkdir -p /var/www/html/storage/framework/views\nmkdir -p /var/www/html/storage/framework/cache\nmkdir -p /var/www/html/storage/framework/sessions\nmkdir -p /var/www/html/bootstrap/cache\n\n# Set proper permissions\nchown -R www-data:www-data /var/www/html/storage\nchown -R www-data:www-data /var/www/html/bootstrap/cache\n\n# Run Laravel optimizations\nphp artisan config:cache\nphp artisan route:cache\n\n# Only cache views if views directory exists\nif [ -d "/var/www/html/resources/views" ]; then\n    php artisan view:cache\nfi\n\n# Run migrations (optional - uncomment if needed)\n# php artisan migrate --force\n\n# Start supervisor\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /usr/local/bin/start.sh && \
     chmod +x /usr/local/bin/start.sh
 
 # Expose port (Railway will inject PORT env variable)
