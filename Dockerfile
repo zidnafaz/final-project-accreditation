@@ -1,9 +1,9 @@
 # Gunakan PHP 8.2 dengan FPM
 FROM php:8.2-fpm
 
-# Install dependensi sistem dan ekstensi PHP yang dibutuhkan Laravel & phpspreadsheet
+# Install dependensi sistem dan ekstensi PHP yang dibutuhkan Laravel & PhpSpreadsheet
 RUN apt-get update && apt-get install -y \
-    git curl zip unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev \
+    git curl zip unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libonig-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd zip pdo pdo_mysql mbstring exif pcntl bcmath dom
 
@@ -13,11 +13,11 @@ COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
 # Atur direktori kerja
 WORKDIR /var/www/html
 
-# Copy file composer.json dan composer.lock dulu (biar caching build lebih efisien)
+# Copy file composer.json dan composer.lock (agar caching build lebih efisien)
 COPY composer.json composer.lock ./
 
-# Install dependensi PHP (tanpa dev, untuk produksi)
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Install dependensi PHP tanpa dev (untuk production)
+RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=ext-gd
 
 # Copy seluruh source code Laravel
 COPY . .
@@ -26,10 +26,13 @@ COPY . .
 RUN php artisan key:generate --ansi || true
 
 # Ganti permission supaya storage & bootstrap bisa ditulis Laravel
-RUN chmod -R 775 storage bootstrap/cache
+RUN chown -R www-data:www-data storage bootstrap/cache && chmod -R 775 storage bootstrap/cache
 
-# Ekspos port default
+# Optimasi konfigurasi Laravel untuk production
+RUN php artisan config:cache && php artisan route:cache && php artisan view:cache
+
+# Expose port default (8080 agar cocok dengan Railway)
 EXPOSE 8080
 
-# Jalankan Laravel
+# Jalankan Laravel menggunakan built-in server
 CMD php artisan serve --host=0.0.0.0 --port=8080
