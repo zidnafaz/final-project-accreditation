@@ -3,7 +3,7 @@ FROM php:8.2-fpm
 
 # Install dependensi sistem dan ekstensi PHP yang dibutuhkan Laravel & PhpSpreadsheet
 RUN apt-get update && apt-get install -y \
-    git curl zip unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libonig-dev \
+    git curl zip unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libonig-dev libxml2-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install gd zip pdo pdo_mysql mbstring exif pcntl bcmath dom
 
