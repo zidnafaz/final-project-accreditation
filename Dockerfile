@@ -1,52 +1,146 @@
-# ============================================
-# Stage 1 — Composer dependencies builder
-# ============================================
-FROM composer:2.6 AS vendor
+# Use PHP 8.2 FPM Alpine for smaller image size
+FROM php:8.2-fpm-alpine
 
-WORKDIR /app
+# Install system dependencies
+RUN apk add --no-cache \
+    git \
+    curl \
+    libpng-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    nginx \
+    supervisor \
+    postgresql-dev \
+    oniguruma-dev \
+    libxml2-dev
 
-# Copy file composer saja agar caching efisien
-COPY composer.json composer.lock ./
+# Install PHP extensions
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install -j$(nproc) \
+    pdo \
+    pdo_mysql \
+    pdo_pgsql \
+    mbstring \
+    exif \
+    pcntl \
+    bcmath \
+    gd \
+    zip \
+    dom \
+    xml
 
-# Tambah timeout dan izinkan root
-ENV COMPOSER_ALLOW_SUPERUSER=1
-RUN composer config --global process-timeout 2000
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Install dependencies
-RUN composer install
-
-# ============================================
-# Stage 2 — PHP-FPM production image
-# ============================================
-FROM php:8.2-fpm
-
-# Install sistem dependencies & PHP extensions
-RUN apt-get update && apt-get install -y \
-    git curl zip unzip libpng-dev libjpeg-dev libfreetype6-dev libzip-dev libonig-dev libxml2-dev \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install gd zip pdo pdo_mysql mbstring exif pcntl bcmath dom \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Atur direktori kerja
+# Set working directory
 WORKDIR /var/www/html
 
-# Copy vendor dari stage pertama
-COPY --from=vendor /app/vendor ./vendor
+# Copy composer files
+COPY composer.json composer.lock ./
 
-# Copy seluruh source code
+# Install dependencies with optimizations for production
+RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction --prefer-dist \
+    && composer clear-cache
+
+# Copy application files
 COPY . .
 
-# Jalankan composer dump-autoload agar scripts artisan baru aktif setelah file ada
-RUN composer dump-autoload --optimize
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
 
-# Generate APP_KEY otomatis (jika belum ada)
-RUN php artisan key:generate --ansi || true
+# Create nginx configuration
+RUN echo 'worker_processes auto;\n\
+error_log /var/log/nginx/error.log warn;\n\
+pid /var/run/nginx.pid;\n\
+\n\
+events {\n\
+    worker_connections 1024;\n\
+}\n\
+\n\
+http {\n\
+    include /etc/nginx/mime.types;\n\
+    default_type application/octet-stream;\n\
+    \n\
+    log_format main '"'"'$remote_addr - $remote_user [$time_local] "$request" '"'"'\n\
+                    '"'"'$status $body_bytes_sent "$http_referer" '"'"'\n\
+                    '"'"'"$http_user_agent" "$http_x_forwarded_for"'"'"';\n\
+    \n\
+    access_log /var/log/nginx/access.log main;\n\
+    sendfile on;\n\
+    keepalive_timeout 65;\n\
+    client_max_body_size 20M;\n\
+    \n\
+    server {\n\
+        listen 8080;\n\
+        server_name _;\n\
+        root /var/www/html/public;\n\
+        index index.php index.html;\n\
+        \n\
+        location / {\n\
+            try_files $uri $uri/ /index.php?$query_string;\n\
+        }\n\
+        \n\
+        location ~ \.php$ {\n\
+            fastcgi_pass 127.0.0.1:9000;\n\
+            fastcgi_index index.php;\n\
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n\
+            include fastcgi_params;\n\
+        }\n\
+        \n\
+        location ~ /\.ht {\n\
+            deny all;\n\
+        }\n\
+    }\n\
+}' > /etc/nginx/nginx.conf
 
-# Permission folder penting
-RUN chmod -R 775 storage bootstrap/cache
+# Create supervisor configuration
+RUN echo '[supervisord]\n\
+nodaemon=true\n\
+user=root\n\
+logfile=/var/log/supervisor/supervisord.log\n\
+pidfile=/var/run/supervisord.pid\n\
+\n\
+[program:php-fpm]\n\
+command=php-fpm\n\
+autostart=true\n\
+autorestart=true\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0\n\
+\n\
+[program:nginx]\n\
+command=nginx -g '"'"'daemon off;'"'"'\n\
+autostart=true\n\
+autorestart=true\n\
+stdout_logfile=/dev/stdout\n\
+stdout_logfile_maxbytes=0\n\
+stderr_logfile=/dev/stderr\n\
+stderr_logfile_maxbytes=0' > /etc/supervisord.conf
 
-# Ekspos port 8080
+# Create startup script
+RUN echo '#!/bin/sh\n\
+set -e\n\
+\n\
+# Run Laravel optimizations\n\
+php artisan config:cache\n\
+php artisan route:cache\n\
+php artisan view:cache\n\
+\n\
+# Run migrations (optional - uncomment if needed)\n\
+# php artisan migrate --force\n\
+\n\
+# Start supervisor\n\
+exec /usr/bin/supervisord -c /etc/supervisord.conf' > /usr/local/bin/start.sh \
+    && chmod +x /usr/local/bin/start.sh
+
+# Expose port (Railway will inject PORT env variable)
 EXPOSE 8080
 
-# Jalankan Laravel
-CMD php artisan serve --host=0.0.0.0 --port=8080
+# Start services
+CMD ["/usr/local/bin/start.sh"]
