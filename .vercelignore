@@ -1,6 +1,4 @@
-node_modules
 vendor
-storage
-tests
+node_modules
 .git
-.env
+documents
