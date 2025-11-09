@@ -123,21 +123,9 @@ stdout_logfile_maxbytes=0\n\
 stderr_logfile=/dev/stderr\n\
 stderr_logfile_maxbytes=0' > /etc/supervisord.conf
 
-# Create startup script
-RUN echo '#!/bin/sh\n\
-set -e\n\
-\n\
-# Run Laravel optimizations\n\
-php artisan config:cache\n\
-php artisan route:cache\n\
-php artisan view:cache\n\
-\n\
-# Run migrations (optional - uncomment if needed)\n\
-# php artisan migrate --force\n\
-\n\
-# Start supervisor\n\
-exec /usr/bin/supervisord -c /etc/supervisord.conf' > /usr/local/bin/start.sh \
-    && chmod +x /usr/local/bin/start.sh
+# Create startup script using printf for better compatibility
+RUN printf '#!/bin/sh\nset -e\n\n# Run Laravel optimizations\nphp artisan config:cache\nphp artisan route:cache\nphp artisan view:cache\n\n# Run migrations (optional - uncomment if needed)\n# php artisan migrate --force\n\n# Start supervisor\nexec /usr/bin/supervisord -c /etc/supervisord.conf\n' > /usr/local/bin/start.sh && \
+    chmod +x /usr/local/bin/start.sh
 
 # Expose port (Railway will inject PORT env variable)
 EXPOSE 8080
