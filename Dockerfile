@@ -13,26 +13,20 @@ COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
 # Atur direktori kerja
 WORKDIR /var/www/html
 
-# Copy file composer.json dan composer.lock (agar caching build lebih efisien)
-COPY composer.json composer.lock ./
-
-# Install dependensi PHP tanpa dev (untuk production)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --ignore-platform-req=ext-gd
-
-# Copy seluruh source code Laravel
+# Copy semua source code (termasuk artisan)
 COPY . .
+
+# Install dependensi PHP (tanpa dev, untuk produksi)
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Generate APP_KEY otomatis kalau belum ada
 RUN php artisan key:generate --ansi || true
 
 # Ganti permission supaya storage & bootstrap bisa ditulis Laravel
-RUN chown -R www-data:www-data storage bootstrap/cache && chmod -R 775 storage bootstrap/cache
+RUN chmod -R 775 storage bootstrap/cache
 
-# Optimasi konfigurasi Laravel untuk production
-RUN php artisan config:cache && php artisan route:cache && php artisan view:cache
-
-# Expose port default (8080 agar cocok dengan Railway)
+# Ekspos port default
 EXPOSE 8080
 
-# Jalankan Laravel menggunakan built-in server
+# Jalankan Laravel
 CMD php artisan serve --host=0.0.0.0 --port=8080
